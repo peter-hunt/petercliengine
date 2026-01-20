@@ -1,2 +1,0 @@
-CLIEngine:
-Check for overlapping definitions and conflicting var types.
