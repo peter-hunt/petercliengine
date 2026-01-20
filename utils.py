@@ -5,6 +5,7 @@ from typing import Any, Callable, get_args
 
 __all__ = [
     "catch_interrupt",
+    "catch_interrupt_with_api",
     "catch_interrupt_silent",
     "TypeLike",
     "istype",
@@ -15,9 +16,20 @@ def catch_interrupt(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except (EOFError, KeyboardInterrupt) as error:
+        except (EOFError, KeyboardInterrupt):
             print("\nProcess interrupted.")
-            # print(f"\n{type(error).__name__}")
+    wrapper.__doc__ = func.__doc__
+    wrapper.__annotations__ = func.__annotations__
+    return wrapper
+
+
+def catch_interrupt_with_api(func: Callable) -> Callable:
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (EOFError, KeyboardInterrupt):
+            print("\nProcess interrupted.")
+            return {"type": "interrupted"}
     wrapper.__doc__ = func.__doc__
     wrapper.__annotations__ = func.__annotations__
     return wrapper
@@ -92,9 +104,11 @@ def istype(obj: object, type_: TypeLike, /) -> bool:
 
 
 @catch_interrupt
-def match_input(pattern: str) -> str:
+def match_input(pattern: str, /, strip: bool = False) -> str:
     while True:
         string = input(":> ")
+        if strip:
+            string = string.strip()
         if fullmatch(pattern, string):
             return string
         print("Invalid format, try again.")

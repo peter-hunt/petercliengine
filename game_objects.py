@@ -9,7 +9,7 @@ from datatype import DataType, Variable
 from myjson import load
 from profile_manage import *
 from str_convert import to_snake_case
-from utils import catch_interrupt, match_input
+from utils import catch_interrupt, catch_interrupt_with_api, match_input
 
 
 __all__ = [
@@ -227,6 +227,7 @@ class GameLauncher:
         return {"type": "success"}
 
     @engine.add_command("new", ["new", "init"])
+    @catch_interrupt_with_api
     def init_profile(self):
         """
         Create a new profile.
@@ -245,22 +246,27 @@ class GameLauncher:
             else:
                 base_id = default_id
                 i = 1
-            used_id = f"{base_id}_{i}"
-            while (self.working_directory / "saves" / f"{used_id}.json").exists():
+            unique_id = f"{base_id}_{i}"
+            while (self.working_directory / "saves" / f"{unique_id}.json").exists():
                 i += 1
-                used_id = f"{base_id}_{i}"
+                unique_id = f"{base_id}_{i}"
         else:
-            used_id = default_id
+            unique_id = default_id
 
         print("Please enter the ID of the profile.")
-        print(f"Leave empty for auto-generated one: {used_id!r}")
-        profile_id = match_input(r".*")
-        if profile_id is None:
-            return {"type": "interrupted"}
-        elif profile_id == '':
-            profile_id = used_id
-        else:
-            profile_id = profile_id.strip()
+        print(f"Leave empty for auto-generated one: {unique_id!r}")
+        while True:
+            profile_id = match_input(r".*")
+            if profile_id is None:
+                return {"type": "interrupted"}
+            elif profile_id == '':
+                profile_id = unique_id
+            else:
+                profile_id = profile_id.strip()
+            if (self.working_directory / "saves" / f"{profile_id}.json").exists():
+                print("Profile ID taken, please choose another one.")
+            else:
+                break
 
         PlayerProfile(profile_id, profile_name).save(self.working_directory)
 
@@ -277,6 +283,7 @@ class GameLauncher:
         if not filepath.is_file():
             print(f"Failed to load: Profile not found: {profile_id}.")
             return {"type": "failed"}
+
         try:
             with open(filepath) as file:
                 obj = load(file)
@@ -284,13 +291,109 @@ class GameLauncher:
             print("Failed to load: Profile has invalid JSON structure.")
             print(f"Profile not found: {profile_id}.")
             return {"type": "failed"}
-        profile = None
         try:
             profile = PlayerProfile.loads(obj)
         except:
             print("Failed to load: Profile has invalid data.")
             return {"type": "failed"}
+
         GameContext(profile, self.working_directory).run()
+        return {"type": "success"}
+
+    @engine.add_command("rm", ["rm <profile_id:str>", "del <profile_id:str>"])
+    def remove_profile(self, profile_id: str):
+        """
+        Delete the selected profile by ID.
+        """
+        filepath = (self.working_directory / "saves" /
+                    f"{profile_id.removesuffix('.json')}.json")
+        if not filepath.is_file():
+            print(f"Failed to remove: Profile not found: {profile_id}.")
+            return {"type": "failed"}
+        print(f"Are you sure you want to delete profile {profile_id!r}?")
+        print("This profile will be deleted immediately. You can't undo this action. (y/N)")
+        confirmation = match_input(r"^[ynYN]?$", strip=True).lower()
+        if confirmation == 'y':
+            filepath.unlink(missing_ok=True)
+            print(f"Deleted profile {profile_id!r}!")
+            return {"type": "success"}
+        else:
+            print("Canceled.")
+            return {"type": "failed"}
+
+    @engine.add_command("mv", ["mv <old_profile_id:str>",
+                               "rename <old_profile_id:str>"])
+    def rename_profile(self, old_profile_id: str):
+        """
+        Rename the selected profile by ID.
+        New name and ID will be prompted for.
+        """
+        filepath = (self.working_directory / "saves" /
+                    f"{old_profile_id.removesuffix('.json')}.json")
+        if not filepath.is_file():
+            print(f"Failed to rename: Profile not found: {old_profile_id}.")
+            return {"type": "failed"}
+
+        try:
+            with open(filepath) as file:
+                obj = load(file)
+        except:
+            print("Failed to rename: Profile has invalid JSON structure.")
+            print(f"Profile not found: {old_profile_id}.")
+            return {"type": "failed"}
+        try:
+            profile = PlayerProfile.loads(obj)
+        except:
+            print("Failed to rename: Profile has invalid data.")
+            return {"type": "failed"}
+
+        old_profile_name = profile.name
+        print(f"Original profile name: {old_profile_name!r}")
+        print(f"Original profile ID: {profile.id!r}")
+
+        print("Please enter the new name for this profile.")
+        new_profile_name = match_input(r".*[^\s]+.*")
+        if new_profile_name is None:
+            return {"type": "interrupted"}
+        new_profile_name = new_profile_name.strip()
+
+        default_id = to_snake_case(new_profile_name)
+        if (self.working_directory / "saves" / f"{default_id}.json").exists():
+            if (segments := fullmatch(r"(.+)_(\d+)$", default_id)):
+                base_id = segments.group(1)
+                i = int(segments.group(2)) + 1
+            else:
+                base_id = default_id
+                i = 1
+            unique_id = f"{base_id}_{i}"
+            while (self.working_directory / "saves" / f"{unique_id}.json").exists():
+                i += 1
+                unique_id = f"{base_id}_{i}"
+        else:
+            unique_id = default_id
+
+        print("Please enter the ID of the profile.")
+        print(f"Leave empty for auto-generated one: {unique_id!r}")
+        while True:
+            new_profile_id = match_input(r".*")
+            if new_profile_id is None:
+                return {"type": "interrupted"}
+            elif new_profile_id == '':
+                new_profile_id = unique_id
+            else:
+                new_profile_id = new_profile_id.strip()
+            if (self.working_directory / "saves" / f"{new_profile_id}.json").exists():
+                print("Profile ID taken, please choose another one.")
+            else:
+                break
+
+        profile.name = new_profile_name
+        profile.id = new_profile_id
+        profile.save(self.working_directory)
+        filepath.unlink()
+        print(f"Successfully renamed profile name from"
+              f" {old_profile_name} to {new_profile_name},")
+        print(f"And profile ID from {old_profile_id} to {new_profile_id}!")
         return {"type": "success"}
 
     @catch_interrupt
@@ -325,7 +428,7 @@ class GameLauncher:
                     print(f"Unknown command: {api['command']!r}.")
                     print(f"Use 'help' for a list of commands available.")
                 case other:
-                    print(f"Unknown API response: {other}")
+                    print(f"Unknown API response type: {other}")
 
 
 def main():

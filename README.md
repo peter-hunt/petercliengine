@@ -1,6 +1,6 @@
 # PeterCliEngine
 
-A common framework library for Python CLI like CLI engine for CLI interface and RPG, RPG profile manager template, Pydantic/dataclass styled data type base class for easier data management and JSON loading/dumping, and future contents to come.
+A common framework library for Python RPG like CLI engine for CLI interface and RPG, RPG profile manager template, Pydantic/dataclass styled data type base class for easier data management and JSON loading/dumping, and future contents to come.
 
 ## Usage
 
@@ -55,7 +55,7 @@ Here are the list of game structures and progress:
 - `SkillType`: WIP. Handles the skill system calculations of XP-level, bonuses, and so on;
 - `PlayerProfile`: A working basic template of player profile data with basic loading and saving mechanics;
 - `GameContext`: The running instance for the game with a profile to run all the game logic;
-- `GameLauncher`: The menu to create, manage, and enter the profiles and adjusting settings.
+- `GameLauncher`: The menu to create, rename, delete, and enter the profiles and adjusting settings (WIP).
 
 ## Todo List
 
