@@ -2,9 +2,25 @@
 
 A common framework library for Python RPG like CLI engine for CLI interface and RPG, RPG profile manager template, Pydantic/dataclass styled data type base class for easier data management and JSON loading/dumping, and future contents to come.
 
+## Python Version: 3.14.2+
+
+This project is currently under development with Python version 3.14.2, so a matching or newer Python version would be recommended and reinforced by the code.
+
 ## Usage
 
-The code in the project is not organized to be executed directly. There will be some that require dependency libraries listed in the `requirements.txt`. Some example usages have been added in the `main()` functions in each file.
+Some example usages have been added in the `main()` functions in each file.
+
+If there are any required libraries in the future and that I forget to edit this line, use the following command to install the required libraries:
+
+```bash
+pip install -r requirements.txt
+```
+
+To run the program, which is the sample template `GameLauncher` in `game_objects.py`, use the following command in the `petercliengine` repository folder:
+
+```bash
+python3 .
+```
 
 If used in a folder, put `.` in front of the relative imports, e.g. `utils.py`, to have it work properly. The `__init__.py` is already implemented to contain all content and work with `import *`.
 

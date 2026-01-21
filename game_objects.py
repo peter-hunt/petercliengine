@@ -13,6 +13,7 @@ from utils import catch_interrupt, catch_interrupt_with_api, match_input
 
 
 __all__ = [
+    "ItemType",
     "Item",
     "Location",
     "NPC",
@@ -26,10 +27,19 @@ __all__ = [
 ]
 
 
-class Item(DataType):
+class ItemType(DataType):
     variables = [
         Variable("id", str),
         Variable("name", str),
+        Variable("stackable", bool, default=False),
+        Variable("max_stack", int, default=1),
+    ]
+
+
+class Item(DataType):
+    variables = [
+        Variable("id", str),
+        Variable("quantity", int, default=1),
     ]
 
 
@@ -75,6 +85,7 @@ class Event(DataType):
     # life cycle: one time, cycle
     variables = [
         Variable("trigger", list[list[str | Any]]),  # list of type and content
+        Variable("narration", list[str]),
         Variable("rewards", list[list[str | Any]]),  # list of type and content
     ]
 
@@ -140,7 +151,7 @@ class GameContext:
     engine.commands["exit"].__doc__ = "Exit and save game."
     working_directory: str | Path
 
-    def __init__(self, profile: PlayerProfile, working_directory: str | Path, /):
+    def __init__(self, profile: PlayerProfile, working_directory: str | Path):
         self.profile = profile
         self.settings = None
         self.session_start_time = None
@@ -150,10 +161,13 @@ class GameContext:
     def launch_message(self):
         print(f"Running game profile: {self.profile.id}")
 
+    def is_triggerable(self, event: Event, /):
+        return False
+
     def trigger_event(self, event: Event, /):
         pass
 
-    def update_time(self, /):
+    def update_time(self):
         current_time = time()
         if self.profile.last_updated == -1:
             dt = 0
@@ -161,6 +175,9 @@ class GameContext:
             dt = current_time - self.profile.last_updated
         self.profile.last_updated = current_time
         self.profile.total_playtime += dt
+
+    def update(self):
+        self.update_time()
 
     def add_command(self, name: str, patterns: list[str]):
         return self.engine.add_command(name, patterns)
@@ -204,8 +221,11 @@ class GameLauncher:
     engine.commands["exit"].__doc__ = "Exit game launcher."
     working_directory: str | Path
 
-    def __init__(self, working_directory: str | Path, /):
+    def __init__(self, context_cls, profile_cls,
+                 working_directory: str | Path, /):
         self.settings = None
+        self.context_cls = context_cls
+        self.profile_cls = profile_cls
         self.working_directory = Path(working_directory)
 
     def launch_message(self):
@@ -217,7 +237,7 @@ class GameLauncher:
         List the available profiles.
         """
         seen_profile = False
-        for profile_name, profile_id in get_profiles(self.working_directory, PlayerProfile):
+        for profile_name, profile_id in get_profiles(self.working_directory, self.profile_cls):
             if not seen_profile:
                 print("Available profiles:")
                 seen_profile = True
@@ -268,7 +288,7 @@ class GameLauncher:
             else:
                 break
 
-        PlayerProfile(profile_id, profile_name).save(self.working_directory)
+        self.profile_cls(profile_id, profile_name).save(self.working_directory)
 
         print(f"Successfully created")
         return {"type": "success"}
@@ -292,12 +312,12 @@ class GameLauncher:
             print(f"Profile not found: {profile_id}.")
             return {"type": "failed"}
         try:
-            profile = PlayerProfile.loads(obj)
+            profile = self.profile_cls.loads(obj)
         except:
             print("Failed to load: Profile has invalid data.")
             return {"type": "failed"}
 
-        GameContext(profile, self.working_directory).run()
+        self.context_cls(profile, self.working_directory).run()
         return {"type": "success"}
 
     @engine.add_command("rm", ["rm <profile_id:str>", "del <profile_id:str>"])
@@ -342,7 +362,7 @@ class GameLauncher:
             print(f"Profile not found: {old_profile_id}.")
             return {"type": "failed"}
         try:
-            profile = PlayerProfile.loads(obj)
+            profile = self.profile_cls.loads(obj)
         except:
             print("Failed to rename: Profile has invalid data.")
             return {"type": "failed"}
@@ -432,7 +452,8 @@ class GameLauncher:
 
 
 def main():
-    launcher = GameLauncher(Path.home() / "cliengine")
+    launcher = GameLauncher(GameContext, PlayerProfile,
+                            Path.home() / "cliengine")
     launcher.run()
 
 

@@ -1,3 +1,10 @@
+from sys import version_info
+
+if version_info < (3, 14, 2):
+    raise Exception("Python version of at least 3.14.2"
+                    " is required for PeterCLIEngine.")
+
+
 from pathlib import Path
 
 from datatype import DataType
