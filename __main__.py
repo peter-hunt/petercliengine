@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from game_objects import *
+from models import *
 
 
 def main():

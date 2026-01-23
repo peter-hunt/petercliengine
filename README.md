@@ -16,7 +16,7 @@ If there are any required libraries in the future and that I forget to edit this
 pip install -r requirements.txt
 ```
 
-To run the program, which is the sample template `GameLauncher` in `game_objects.py`, use the following command in the `petercliengine` repository folder:
+To run the program, which is the sample template `GameLauncher` in `models.py`, use the following command in the `petercliengine` repository folder:
 
 ```bash
 python3 .
@@ -30,7 +30,7 @@ For now, the only executable system would be the `profile_manage.py`, which will
 
 - `cliengine.py`: CLI engine for CLI interface and RPG;
 - `datatype.py`: Pydantic/dataclass styled data type base class for easier data management and JSON loading/dumping;
-- `game_objects.py`: Game internal data structure templates;
+- `models.py`: Game internal data structure templates;
 - `profile_manage.py`: Folder management functionalities with `saves` and `settings.json`;
 - `str_convert.py`: String conversion functions between cases and capitalizing phrases etc.;
 - `utils.py`: Utility script for general usage by other modules.
@@ -39,7 +39,7 @@ For now, the only executable system would be the `profile_manage.py`, which will
 
 A work-in-progress engine for command line interactions for applications. The engine handles the command parsing, basic argument types, and fitting the command to execute the corresponding functions.
 
-Currently, the engine works best as the class attribute, like `cls.engine` to support adding new commands to the class value of the `CLIEngine` type. All the given commands are given an API, with `"type"` key giving values like `"exit"`, `"help"`, `"unknown_command"`, and so on, leaving the printing customization to the usage module to decide on. And as a convention and to make it easier, also as shown in the implementation of the sample `GameContext` and `GameLauncher` in `game_objects.py`, user-defined command methods could also return API dict with `"type"` being `"success"`, `"failed"`, `"interrupted"`, and so on to align with the format, making the processing of the parsing result more automatic.
+Currently, the engine works best as the class attribute, like `cls.engine` to support adding new commands to the class value of the `CLIEngine` type. All the given commands are given an API, with `"type"` key giving values like `"exit"`, `"help"`, `"unknown_command"`, and so on, leaving the printing customization to the usage module to decide on. And as a convention and to make it easier, also as shown in the implementation of the sample `GameContext` and `GameLauncher` in `models.py`, user-defined command methods could also return API dict with `"type"` being `"success"`, `"failed"`, `"interrupted"`, and so on to align with the format, making the processing of the parsing result more automatic.
 
 ### Features
 
@@ -57,7 +57,7 @@ As a rule of thumb for usage, try to name it something unique that it won't over
 
 In the saves folder, the save files are written in JSON format with profile ID with optional number identifier to avoid overlapping. For example, with an existing `a.json`, another new profile with `a` being the name will have ID `a_1.json`, and the next one `a_2.json`, and so on. Even created names like `a_1.json` will go up with the number suffix to avoid `a_1_1.json` with the chain, although this could be potentially confusing for `a_1` to resolve to `a_4.json` when you forget about the other ones.
 
-## Game Objects
+## Game Models
 
 Internal game structures like `PlayerProfile`, `GameContext`, `Item`, and so on, as templates for implementing game content. Game content can be loaded from a data folder for items, skills, quests, etc, where the save files will be saved in `saves` and `settings.json` in the custom game folder.
 
@@ -75,7 +75,7 @@ Here are the list of game structures and progress:
 
 ## Todo List
 
-- Implementation of game object functionalities, loading, and management.
+- Implementation of game model class functionalities, loading, and management.
 - Usage of settings file to indicate preferences in whether to auto-enter last-loaded profile, auto-save toggle and interval, and so on;
 - Pretty printing and potentially color theme support;
 - Command line history system and potentially even full control over command line input to disallow typing spam during narrations and dialogues.

@@ -9,8 +9,8 @@ from cliengine import *
 from cliengine import __all__ as __cliengine_all__
 from datatype import *
 from datatype import __all__ as __datatype_all__
-from game_objects import *
-from game_objects import __all__ as __profile_template_all__
+from models import *
+from models import __all__ as __profile_template_all__
 from profile_manage import *
 from profile_manage import __all__ as __profile_manage_all__
 from str_convert import *
