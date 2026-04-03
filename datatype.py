@@ -122,7 +122,7 @@ class Variable:
             raise ValueError(f"default value not provided"
                              f" for variable {self.name!r}")
 
-    def load(self, value: any, /):
+    def load(self, value: Any, /):
         """Transforms a raw value using the loader, if one is defined.
 
         Args:
@@ -133,7 +133,7 @@ class Variable:
         """
         return value if self.loader is None else self.loader(value)
 
-    def dump(self, value: any, /):
+    def dump(self, value: Any, /):
         """Transforms a value using the dumper, if one is defined.
 
         Args:
@@ -144,7 +144,7 @@ class Variable:
         """
         return value if self.dumper is None else self.dumper(value)
 
-    def validate(self, value: any, /):
+    def validate(self, value: Any, /):
         """Validates a value using the validator, if one is defined.
 
         Args:
@@ -348,7 +348,7 @@ class DataType:
         json_dump(self.dumps(), file)
 
     @classmethod
-    def loads(cls, obj: dict[str, any], /):
+    def loads(cls, obj: dict[str, Any], /):
         if "type" not in obj:
             raise TypeError(f"type tag missing from data.")
         elif obj["type"] != cls.datatype_id:
@@ -369,7 +369,7 @@ class DataType:
         return cls.loads(json_load(file))
 
     @classmethod
-    def is_valid(cls, obj: dict[str, any]):
+    def is_valid(cls, obj: dict[str, Any]):
         if not istype(obj, dict[str, any]):
             return False
         if "type" not in obj or obj["type"] != cls.datatype_id:

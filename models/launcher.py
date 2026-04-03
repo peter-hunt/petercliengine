@@ -1,222 +1,20 @@
-from numbers import Number
 from pathlib import Path
-from re import fullmatch
-from time import time
-from typing import Any
 
 from cliengine import CLIEngine
-from datatype import DataType, Variable
 from myjson import load
-from profile_manage import *
-from str_convert import to_snake_case
+from profile_manage import (
+    get_profiles, init_working_folder, init_settings,
+    load_settings, generate_unique_profile_id,
+)
 from utils import catch_interrupt, catch_interrupt_with_api, match_input
+
+from .context import GameContext
+from .profile import PlayerProfile
 
 
 __all__ = [
-    "ItemType",
-    "Item",
-    "Location",
-    "NPC",
-    "Achievement",
-    "Event",
-    "Quest",
-    "SkillType",
-    "PlayerProfile",
-    "GameContext",
     "GameLauncher",
 ]
-
-
-class ItemType(DataType):
-    variables = [
-        Variable("id", str),
-        Variable("name", str),
-        Variable("stackable", bool, default=False),
-        Variable("max_stack", int, default=1),
-    ]
-
-
-class Item(DataType):
-    variables = [
-        Variable("id", str),
-        Variable("quantity", int, default=1),
-    ]
-
-
-class Location(DataType):
-    variables = [
-        Variable("id", str),
-        Variable("name", str),
-    ]
-
-
-class NPC(DataType):
-    variables = [
-        Variable("id", str),
-        Variable("name", str),
-        Variable("location", str),  # id
-        Variable("greetings", list[str]),
-        Variable("dialogs", list[str]),
-    ]
-
-
-class Achievement(DataType):
-    variables = [
-        Variable("id", str),
-        Variable("name", str),
-    ]
-
-
-# a moment
-# example usages:
-# narration, tutorial, unlocking content, world-shift moments
-class Event(DataType):
-    # trigger condition/requirement
-    # - always/never
-    # - quest stage/failed, story branch
-    # - skill level, skill branch, power estimation, item/resource
-    # - location, area/world state, time, other events
-    # randomness/rarity
-    # presentation: text, choices, flavor text not logic
-    # rewards (consequences): should change what the player can do
-    # - unlocking skill, mechanics, interfaces, quests
-    # - rule changes, enable shortcuts, allowing actions
-    # - area open/close, NPC action/change
-    # - lore, hints, narration, modifiers
-    # life cycle: one time, cycle
-    variables = [
-        Variable("trigger", list[list[str | Any]]),  # list of type and content
-        Variable("narration", list[str]),
-        Variable("rewards", list[list[str | Any]]),  # list of type and content
-        Variable("max_occurances", int),
-    ]
-
-
-# a commitment
-# what quests are, how they advanced, what they unlock
-# rewards
-class Quest(DataType):
-    # a sequence of pairs of reward type and content
-    variables = [
-        Variable("id", str),
-        Variable("name", str),
-        Variable("stages", int),
-        Variable("rewards", list[list[str | Any]]),  # list of type and content
-    ]
-
-
-# prerequisites, caps, scaling curves
-# how skills level up, xp costs
-# modifiers and stacking
-# unlocking, availability, bonuses
-class SkillType(DataType):
-    variables = [
-        Variable("id", str),
-        Variable("name", str),
-        Variable("levels", list[int]),
-    ]
-
-
-# sample player profile with common basic functionalities
-# alternatives can be modified based on this or redesigned
-# to replace the data structures
-class PlayerProfile(DataType):
-    variables = [
-        Variable("id", str),
-        Variable("name", str),
-
-        # a lot of those are interchangable
-        # regular, ironman, permadeath, etc.
-        Variable("gamemode", str, default="regular"),
-        # easy, normal, hard, etc.
-        Variable("difficulty", str, default="normal"),
-        Variable("gamerules", dict[str, any], default_factory=lambda: {}),
-
-        Variable("character_xp", Number, default=0),
-        Variable("skill_xp", dict[str, Number], default_factory=lambda: {}),
-        Variable("quest_stages", dict[str, int], default_factory=lambda: {}),
-        Variable("achievements", dict[str: bool], default_factory=lambda: {}),
-
-        Variable("inventory", list[Item], default_factory=lambda: []),
-
-        Variable("total_playtime", Number, default=0),
-        Variable("last_updated", Number, default=-1),
-    ]
-
-    def save(self, working_directory: str | Path):
-        with open(working_directory / "saves" / f"{self.id}.json", "w") as file:
-            self.dump(file)
-
-
-class GameContext:
-    profile: PlayerProfile
-    engine: CLIEngine = CLIEngine()
-    engine.commands["exit"].__doc__ = "Exit and save game."
-    working_directory: str | Path
-
-    def __init__(self, profile: PlayerProfile, working_directory: str | Path):
-        self.profile = profile
-        self.settings = None
-        self.session_start_time = None
-        self.working_directory = Path(working_directory)
-        # self.session_duration = None
-
-    def launch_message(self):
-        print(f"Running game profile: {self.profile.id}")
-
-    def is_triggerable(self, event: Event, /):
-        return False
-
-    def trigger_event(self, event: Event, /):
-        pass
-
-    def update_time(self):
-        current_time = time()
-        if self.profile.last_updated == -1:
-            dt = 0
-        else:
-            dt = current_time - self.profile.last_updated
-        self.profile.last_updated = current_time
-        self.profile.total_playtime += dt
-
-    def update(self):
-        self.update_time()
-
-    def add_command(self, name: str, patterns: list[str]):
-        return self.engine.add_command(name, patterns)
-
-    @catch_interrupt
-    def run(self):
-        self.launch_message()
-
-        self.session_start_time = time()
-
-        while True:
-            command = input(">> ").strip()
-            if not command:
-                continue
-
-            api = self.engine.run_command(self, command)
-            match api["type"]:
-                case "exit":
-                    break
-                case "help":
-                    print('\n' + api["content"] + '\n')
-                case "success":
-                    continue
-                case "unknown_command":
-                    print(f"Unknown command: {api['command']!r}.")
-                    print(f"Use 'help' for a list of commands available.")
-                case other:
-                    print(f"Unknown API response: {other}")
-
-    @engine.add_command("save", ["save"])
-    def save(self):
-        """
-        Save profile data.
-        """
-        self.profile.save(self.working_directory)
-        print("Saved!")
 
 
 class GameLauncher:
@@ -261,20 +59,9 @@ class GameLauncher:
             return {"type": "interrupted"}
         profile_name = profile_name.strip()
 
-        default_id = to_snake_case(profile_name)
-        if (self.working_directory / "saves" / f"{default_id}.json").exists():
-            if (segments := fullmatch(r"(.+)_(\d+)$", default_id)):
-                base_id = segments.group(1)
-                i = int(segments.group(2)) + 1
-            else:
-                base_id = default_id
-                i = 1
-            unique_id = f"{base_id}_{i}"
-            while (self.working_directory / "saves" / f"{unique_id}.json").exists():
-                i += 1
-                unique_id = f"{base_id}_{i}"
-        else:
-            unique_id = default_id
+        unique_id = generate_unique_profile_id(
+            self.working_directory, profile_name
+        )
 
         print("Please enter the ID of the profile.")
         print(f"Leave empty for auto-generated one: {unique_id!r}")
@@ -310,13 +97,13 @@ class GameLauncher:
         try:
             with open(filepath) as file:
                 obj = load(file)
-        except:
+        except Exception:
             print("Failed to load: Profile has invalid JSON structure.")
             print(f"Profile not found: {profile_id}.")
             return {"type": "failed"}
         try:
             profile = self.profile_cls.loads(obj)
-        except:
+        except Exception:
             print("Failed to load: Profile has invalid data.")
             return {"type": "failed"}
 
@@ -360,13 +147,13 @@ class GameLauncher:
         try:
             with open(filepath) as file:
                 obj = load(file)
-        except:
+        except Exception:
             print("Failed to rename: Profile has invalid JSON structure.")
             print(f"Profile not found: {old_profile_id}.")
             return {"type": "failed"}
         try:
             profile = self.profile_cls.loads(obj)
-        except:
+        except Exception:
             print("Failed to rename: Profile has invalid data.")
             return {"type": "failed"}
 
@@ -380,20 +167,9 @@ class GameLauncher:
             return {"type": "interrupted"}
         new_profile_name = new_profile_name.strip()
 
-        default_id = to_snake_case(new_profile_name)
-        if (self.working_directory / "saves" / f"{default_id}.json").exists():
-            if (segments := fullmatch(r"(.+)_(\d+)$", default_id)):
-                base_id = segments.group(1)
-                i = int(segments.group(2)) + 1
-            else:
-                base_id = default_id
-                i = 1
-            unique_id = f"{base_id}_{i}"
-            while (self.working_directory / "saves" / f"{unique_id}.json").exists():
-                i += 1
-                unique_id = f"{base_id}_{i}"
-        else:
-            unique_id = default_id
+        unique_id = generate_unique_profile_id(
+            self.working_directory, new_profile_name
+        )
 
         print("Please enter the ID of the profile.")
         print(f"Leave empty for auto-generated one: {unique_id!r}")
@@ -431,7 +207,7 @@ class GameLauncher:
             init_settings(self.working_directory, override=True)
 
         while True:
-            command = input("> ").strip()
+            command = self.engine.read_command("> ")
             if not command:
                 continue
 

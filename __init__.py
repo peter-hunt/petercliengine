@@ -7,6 +7,8 @@ if version_info < (3, 14, 2):
 
 from cliengine import *
 from cliengine import __all__ as __cliengine_all__
+from color import *
+from color import __all__ as __color_all__
 from datatype import *
 from datatype import __all__ as __datatype_all__
 from models import *
@@ -20,6 +22,7 @@ from utils import __all__ as __utils_all__
 
 
 __all__ = (
-    __cliengine_all__ + __datatype_all__ + __profile_manage_all__
-    + __profile_template_all__ + __str_convert_all__ + __utils_all__
+    __cliengine_all__ + __color_all__ + __datatype_all__
+    + __profile_manage_all__ + __profile_template_all__
+    + __str_convert_all__ + __utils_all__
 )

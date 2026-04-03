@@ -1,5 +1,12 @@
 from re import Match, compile as re_compile, VERBOSE
-from typing import Callable
+from typing import Any, Callable
+
+try:
+    import readline as _readline
+    _READLINE_AVAILABLE = True
+except ImportError:
+    _readline = None
+    _READLINE_AVAILABLE = False
 
 
 __all__ = [
@@ -64,7 +71,7 @@ class ArgType:
             value to the target Python type.
     """
 
-    def __init__(self, name: str, pattern: str, converter: Callable[[str], any]):
+    def __init__(self, name: str, pattern: str, converter: Callable[[str], Any]):
         """Initializes an ArgType with a name, regex pattern, and converter.
 
         Args:
@@ -452,11 +459,15 @@ class CLIEngine:
     Attributes:
         commands (dict[str, Command]): The registry of registered commands,
             keyed by name.
+        history (list[str]): In-memory log of every non-empty command submitted
+            via :meth:`run_command` or :meth:`read_command`.
     """
 
     def __init__(self):
         """Initializes the CLIEngine and registers the built-in commands."""
         self.commands: dict[str, Command] = {}
+        self.history: list[str] = []
+        self._readline_setup: bool = False
         self._register_builtin_commands()
 
     def register(self, cmd: Command):
@@ -471,6 +482,8 @@ class CLIEngine:
         if cmd.name in self.commands:
             raise ValueError(f"Duplicate command name '{cmd.name}'")
         self.commands[cmd.name] = cmd
+        # invalidate cached completions whenever commands change
+        self._readline_setup = False
 
     def add_command(self, name: str, patterns: list[str]) -> Callable:
         """Returns a decorator that registers the decorated function as a command.
@@ -569,6 +582,90 @@ class CLIEngine:
 
         return {"type": "unknown_command", "text": text, "command": tokens[0]}
 
+    # ------------------------------------------------------------------
+    # History
+    # ------------------------------------------------------------------
+
+    def push_history(self, command: str) -> None:
+        """Append a non-empty command string to the in-memory history.
+
+        Args:
+            command: The raw command text. Empty strings are silently ignored.
+        """
+        if command:
+            self.history.append(command)
+
+    def get_history(self) -> list[str]:
+        """Return a copy of the recorded command history.
+
+        Returns:
+            list[str]: Chronologically ordered list of non-empty commands.
+        """
+        return list(self.history)
+
+    # ------------------------------------------------------------------
+    # Readline / tab completion
+    # ------------------------------------------------------------------
+
+    def setup_readline(self, history_file: str | None = None) -> None:
+        """Configure readline tab-completion and optional history persistence.
+
+        Registers a completer that expands the current prefix to matching
+        command names.  If ``history_file`` is provided and readable it will
+        be loaded on first call and written out on :meth:`read_command` exit.
+        Does nothing if readline is not available (e.g. on Windows).
+
+        Args:
+            history_file: Optional filesystem path to a readline history file.
+        """
+        if not _READLINE_AVAILABLE:
+            return
+
+        self._readline_history_file = history_file
+
+        if history_file:
+            try:
+                _readline.read_history_file(history_file)
+            except (OSError, FileNotFoundError):
+                pass
+
+        candidates: list[str] = []
+
+        def completer(text: str, state: int) -> str | None:
+            nonlocal candidates
+            if state == 0:
+                candidates = [
+                    name for name in self.commands
+                    if name.startswith(text)
+                ]
+            return candidates[state] if state < len(candidates) else None
+
+        _readline.set_completer(completer)
+        _readline.parse_and_bind("tab: complete")
+        self._readline_setup = True
+
+    def read_command(self, prompt: str = "") -> str:
+        """Read a command from stdin with readline support.
+
+        Sets up readline tab-completion on the first call (if available),
+        records each non-empty input to :attr:`history`, and returns the
+        stripped text.
+
+        Args:
+            prompt: The prompt string shown to the user.
+
+        Returns:
+            The stripped command string (may be empty).
+        """
+        if not self._readline_setup:
+            self.setup_readline(
+                getattr(self, "_readline_history_file", None)
+            )
+        text = input(prompt).strip()
+        if text:
+            self.push_history(text)
+        return text
+
 
 def main():
     class SampleGameContext:
@@ -612,6 +709,15 @@ def main():
     print(res)
     res = engine.run_command(SampleGameContext(), 'say "hello \"world\""')
     print(res)
+
+    # --- history ---
+    print("\n--- History ---")
+    engine.push_history("add 5 7")
+    engine.push_history("hello hi")
+    engine.push_history("help")
+    for entry in engine.get_history():
+        print(f"  {entry!r}")
+    print(f"Total history entries: {len(engine.get_history())}")
 
 
 if __name__ == "__main__":

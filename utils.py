@@ -9,6 +9,7 @@ __all__ = [
     "catch_interrupt_silent",
     "TypeLike",
     "istype",
+    "match_input",
 ]
 
 
@@ -39,7 +40,7 @@ def catch_interrupt_silent(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except (EOFError, KeyboardInterrupt) as error:
+        except (EOFError, KeyboardInterrupt):
             return
     return wrapper
 
@@ -83,10 +84,10 @@ def istype(obj: object, type_: TypeLike, /) -> bool:
                 for item, subtype in zip(obj, args)
             )
         elif type_.__origin__ is list:
-            return all(istype(item, args)
+            return all(istype(item, args[0])
                        for item in obj)
         elif type_.__origin__ is set:
-            return all(istype(item, args)
+            return all(istype(item, args[0])
                        for item in obj)
         elif type_.__origin__ is dict:
             return all(istype(key, args[0]) and istype(value, args[1])
@@ -112,3 +113,34 @@ def match_input(pattern: str, /, strip: bool = False) -> str:
         if fullmatch(pattern, string):
             return string
         print("Invalid format, try again.")
+
+
+def main():
+    print("--- istype ---")
+    print(istype("hello", str))                  # True
+    print(istype(42, int | str))                 # True
+    print(istype(["a", "b"], list[str]))         # True
+    print(istype({1, 2}, set[int]))              # True
+    print(istype({"x": True}, dict[str, bool]))  # True
+    print(istype(42, str))                       # False
+    print(istype(["a", 1], list[str]))           # False
+
+    print("\n--- catch_interrupt_with_api ---")
+
+    @catch_interrupt_with_api
+    def risky():
+        raise KeyboardInterrupt
+
+    print(risky())  # {'type': 'interrupted'}
+
+    print("\n--- catch_interrupt_silent ---")
+
+    @catch_interrupt_silent
+    def quiet():
+        raise KeyboardInterrupt
+
+    print(quiet())  # None
+
+
+if __name__ == "__main__":
+    main()

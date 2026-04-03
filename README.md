@@ -1,85 +1,199 @@
 # PeterCliEngine
 
-A common framework library for Python RPG like CLI engine for CLI interface and RPG, RPG profile manager template, Pydantic/dataclass styled data type base class for easier data management and JSON loading/dumping, and future contents to come.
+![Python 3.14.2+](https://img.shields.io/badge/python-3.14.2%2B-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-## Python Version: 3.14.2+
+A general-purpose framework library for building Python CLI applications and RPG-style games. Provides a command-line engine, a typed data-model system, profile management, string utilities, ANSI color theming, and game model templates.
 
-This project is currently under development with Python version 3.14.2, so a matching or newer Python version would be recommended and reinforced by the code.
+> **Python version note:** The project is developed with Python 3.14.2 and `__init__.py` enforces this at import time. Most individual modules are compatible with Python 3.12+; only `profile_manage` (via `init_working_folder`) hard-requires 3.14.2+.
+
+## Table of Contents
+
+- [PeterCliEngine](#petercliengine)
+  - [Table of Contents](#table-of-contents)
+  - [Usage](#usage)
+    - [Minimal non-game CLI example](#minimal-non-game-cli-example)
+    - [Per-module demos](#per-module-demos)
+  - [Modules](#modules)
+  - [Command Line Engine (CLIEngine)](#command-line-engine-cliengine)
+    - [Features](#features)
+  - [Color \& Theming](#color--theming)
+  - [Profile Management](#profile-management)
+  - [Game Models](#game-models)
+  - [Todo List](#todo-list)
+    - [Engine \& Input](#engine--input)
+    - [Data \& Persistence](#data--persistence)
+    - [Game Logic](#game-logic)
+    - [Testing \& Quality](#testing--quality)
+  - [License: MIT](#license-mit)
 
 ## Usage
 
-Some example usages have been added in the `main()` functions in each file.
-
-If there are any required libraries in the future and that I forget to edit this line, use the following command to install the required libraries:
+Install dependencies (currently none; for the future):
 
 ```bash
 pip install -r requirements.txt
 ```
 
-To run the program, which is the sample template `GameLauncher` in `models.py`, use the following command in the `petercliengine` repository folder:
+Run the sample `GameLauncher`:
 
 ```bash
 python3 .
 ```
 
-If used in a folder, put `.` in front of the relative imports, e.g. `utils.py`, to have it work properly. The `__init__.py` is already implemented to contain all content and work with `import *`.
+### Minimal non-game CLI example
 
-For now, the only executable system would be the `profile_manage.py`, which will create a working directory at `~/cliengine`, where `~` is the home folder differing by username and OS, usually being `/Users/<username>` and `/home/<username>`.
+```python
+from cliengine import CLIEngine, Command
 
-## Table of Content
+engine = CLIEngine()
 
-- `cliengine.py`: CLI engine for CLI interface and RPG;
-- `datatype.py`: Pydantic/dataclass styled data type base class for easier data management and JSON loading/dumping;
-- `models.py`: Game internal data structure templates;
-- `profile_manage.py`: Folder management functionalities with `saves` and `settings.json`;
-- `str_convert.py`: String conversion functions between cases and capitalizing phrases etc.;
-- `utils.py`: Utility script for general usage by other modules.
+@engine.add_command("greet", ["greet <name:str>"])
+def cmd_greet(ctx, name: str):
+    print(f"Hello, {name}!")
+    return {"type": "success"}
+
+while True:
+    text = engine.read_command("> ")
+    if not text:
+        continue
+    api = engine.run_command(None, text)
+    if api["type"] == "exit":
+        break
+    if api["type"] == "unknown_command":
+        print(f"Unknown: {api['command']!r}")
+```
+
+`Tab` auto-completes command names; `Up`/`Down` cycle through history (readline).
+
+If used as a package inside another folder, prefix relative imports with `.` (e.g. `from .utils import ...`). The `__init__.py` re-exports everything and works with `import *`.
+
+### Per-module demos
+
+Each module can be run directly as a script for a self-contained demonstration:
+
+```bash
+python3 cliengine.py      # command parsing, dispatch, history demo
+python3 color.py          # ANSI output for DARK and LIGHT themes
+python3 datatype.py       # typed DataType construction and JSON round-trip
+python3 str_convert.py    # all five case converters on sample strings
+python3 utils.py          # istype generics, interrupt-decorator behavior
+python3 profile_manage.py # unique ID collision avoidance in a temp directory
+python3 models/data.py    # game data types + NPC JSON dump/reload
+```
+
+## Modules
+
+| File | Purpose |
+|---|---|
+| `cliengine.py` | CLI engine: command parsing, typed arguments, history, readline/tab-completion |
+| `color.py` | Dependency-free ANSI color/style helpers and `ColorTheme` dataclass |
+| `datatype.py` | Pydantic/dataclass-style base class with typed variables, JSON load/dump |
+| `models/` | Game data structures subpackage (see [Game Models](#game-models)) |
+| `profile_manage.py` | Working-directory management: `saves/`, `settings.json`, profile CRUD |
+| `str_convert.py` | String case converters: `snake`, `camel`, `pascal`, `title`, `kebab` |
+| `utils.py` | `istype`, interrupt-handling decorators, `match_input` |
+| `myjson/` | Custom JSON encoder with clean float formatting and compact pretty-print |
 
 ## Command Line Engine (CLIEngine)
 
-A work-in-progress engine for command line interactions for applications. The engine handles the command parsing, basic argument types, and fitting the command to execute the corresponding functions.
+A command-parsing and dispatch engine suitable for any CLI application, not just games.
 
-Currently, the engine works best as the class attribute, like `cls.engine` to support adding new commands to the class value of the `CLIEngine` type. All the given commands are given an API, with `"type"` key giving values like `"exit"`, `"help"`, `"unknown_command"`, and so on, leaving the printing customization to the usage module to decide on. And as a convention and to make it easier, also as shown in the implementation of the sample `GameContext` and `GameLauncher` in `models.py`, user-defined command methods could also return API dict with `"type"` being `"success"`, `"failed"`, `"interrupted"`, and so on to align with the format, making the processing of the parsing result more automatic.
+Commands are registered with pattern strings like `"go <direction:str>"` or `"add <a:int> [b:int]"`. Built-in argument types: `int`, `num` (float), `bool`, `str`.
+
+The engine works best as a class-level attribute (`cls.engine`) so decorated methods can be registered at class definition time.
+
+All handlers return an API dict with a `"type"` key (`"exit"`, `"help"`, `"success"`, `"failed"`, `"interrupted"`, `"unknown_command"`, ...), letting the caller process results uniformly.
 
 ### Features
 
-- Defining commands with arguments of different value types;
-- Parsing commands to interact with (game) context directly or to return a command API map;
-- Checking for overlapping definitions and var types.
+- Typed required (`<name:type>`) and optional (`[name:type]`) arguments
+- Pattern-coverage warnings for unreachable patterns
+- Quoted string tokens and backslash escaping in input
+- **In-memory history** -- `engine.get_history()` returns every submitted command
+- **Readline integration** -- `engine.setup_readline(history_file=None)` enables `Tab` completion (by command name prefix) and optional history file persistence; `engine.read_command(prompt)` wraps `input()` and records each command automatically. Degrades gracefully on platforms without `readline` (e.g. Windows)
+
+## Color & Theming
+
+`color.py` provides dependency-free ANSI styling:
+
+```python
+from color import colorize, FG, STYLE, DARK_THEME
+
+print(colorize("Hello!", fg=FG.BRIGHT_GREEN, style=STYLE.BOLD))
+print(DARK_THEME.error("Something went wrong."))
+```
+
+- `is_color_supported()` -- respects `NO_COLOR` env var, `TERM=dumb`, and non-TTY stdout
+- `colorize(text, fg, bg, style)` -- wraps text in ANSI codes; returns plain text when color is unsupported
+- `FG`, `BG`, `STYLE` -- constant namespaces for all standard ANSI codes
+- `ColorTheme` -- dataclass with `prompt`, `error`, `success`, `warning`, `info`, `heading` callables
+- `DEFAULT_THEME` (all identity, zero behavior change), `DARK_THEME`, `LIGHT_THEME` built in
+
+Pass a `ColorTheme` to `GameContext`/`GameLauncher` (default: `DEFAULT_THEME`) to opt into styled output.
 
 ## Profile Management
 
-As inherited from the [Skyblock Remake](https://github.com/peter-hunt/skyblock) project, the structure for profile management still large follows that:
+Profile save files and settings are stored in a configurable working directory (default: `~/cliengine`). The `saves/` folder and `settings.json` are created automatically on first launch.
 
-Currently, the profile save files and settings (for future use) will be saved in the `~/cliengine` working directory for the usage demonstration code, which can be configured easily upon usage. The `saves` folder and `settings.json` configuration file will be automatically created on launch, and `settings.json` will be automatically replaced with a default one should the old one be an invalid JSON file.
+**ID collision avoidance:** `generate_unique_profile_id(path, name)` derives a snake_case ID from the display name, appending `_1`, `_2`, ... until a free slot is found.
 
-As a rule of thumb for usage, try to name it something unique that it won't overlap with other folders. Or better, use some common directory like `~/petercliengine` to put the data for each game in a subdirectory, so managing the distinct game folder by ID will be easier (if this engine even goes that far).
-
-In the saves folder, the save files are written in JSON format with profile ID with optional number identifier to avoid overlapping. For example, with an existing `a.json`, another new profile with `a` being the name will have ID `a_1.json`, and the next one `a_2.json`, and so on. Even created names like `a_1.json` will go up with the number suffix to avoid `a_1_1.json` with the chain, although this could be potentially confusing for `a_1` to resolve to `a_4.json` when you forget about the other ones.
+Save files are JSON. With an existing `a.json`, creating another profile named `a` yields `a_1.json`, then `a_2.json`, etc.
 
 ## Game Models
 
-Internal game structures like `PlayerProfile`, `GameContext`, `Item`, and so on, as templates for implementing game content. Game content can be loaded from a data folder for items, skills, quests, etc, where the save files will be saved in `saves` and `settings.json` in the custom game folder.
+The `models/` subpackage contains game-oriented templates, split by concern:
 
-Here are the list of game structures and progress:
-- `Item`: WIP. Handles item stack size, item modification and customization, and so on;
-- `Location`: WIP. Handles the location and connection data between locations;
-- `NPC`: WIP. Handles location, greetings, dialogs, and so on;
-- `Achievement`: WIP. Handles the logic of obtaining each achievement, potential reward and bonuses, and so on;
-- `Event`: WIP. Handles random events or game events with specific triggering;
-- `Quest`: WIP. Handles the unlock, advancement, and rewards of quests;
-- `SkillType`: WIP. Handles the skill system calculations of XP-level, bonuses, and so on;
-- `PlayerProfile`: A working basic template of player profile data with basic loading and saving mechanics;
-- `GameContext`: The running instance for the game with a profile to run all the game logic;
-- `GameLauncher`: The menu to create, rename, delete, and enter the profiles and adjusting settings (WIP).
+| Module | Contents |
+|---|---|
+| `models/data.py` | Pure data types: `ItemType`, `Item`, `Location`, `NPC`, `Achievement`, `Event`, `Quest`, `SkillType` |
+| `models/profile.py` | `PlayerProfile` -- typed save data with `save()` |
+| `models/context.py` | `GameContext` -- runtime game loop with event hooks |
+| `models/launcher.py` | `GameLauncher` -- profile CRUD menu |
+
+All names are re-exported from `models/__init__.py`, so `from models import GameLauncher` still works.
+
+**`PlayerProfile` fields:** id, name, gamemode, difficulty, gamerules, character\_xp, skill\_xp, quest\_stages, achievements, inventory, total\_playtime, last\_updated.
+
+WIP data models:
+- `Item` -- stack size, modification
+- `Location` -- connection data between areas
+- `NPC` -- location, greetings, dialogs
+- `Achievement` -- unlock logic and rewards
+- `Event` -- trigger conditions, narration, rewards, lifecycle
+- `Quest` -- stages, rewards
+- `SkillType` -- XP curves, level caps, bonuses
 
 ## Todo List
 
-- Implementation of game model class functionalities, loading, and management.
-- Usage of settings file to indicate preferences in whether to auto-enter last-loaded profile, auto-save toggle and interval, and so on;
-- Pretty printing and potentially color theme support;
-- Command line history system and potentially even full control over command line input to disallow typing spam during narrations and dialogues.
+### Engine & Input
+- [ ] Thread `ColorTheme` through `GameContext` and `GameLauncher` print calls
+- [ ] Persist readline history between sessions via `setup_readline(history_file=...)` in `GameLauncher`
+- [ ] Command aliases: map short names or abbreviations to full command names
+- [ ] Tab-completion of argument values (item IDs, location names) via a provider callback on `Command`
+- [ ] `!!` / `repeat` built-in to re-run the most-recent history entry
+- [ ] Custom user-defined `ArgType` registration so domain code can extend `ARG_TYPES`
+- [ ] Restrict/buffer input during narrations and dialogues
 
-# License: MIT
+### Data & Persistence
+- [ ] Use `settings.json` for preferences: auto-enter last profile, auto-save interval, color theme selection
+- [ ] Save file versioning and migration: detect old formats and upgrade on load
+- [ ] Profile import/export: copy a `.json` save to a portable archive with metadata
+- [ ] `myjson` encoder: register `DataType` as a natively serializable type for nested structures
+- [ ] Auto-save timer: save the active profile at a configurable interval in a background thread
+
+### Game Logic
+- [ ] Implement game model class logic: item actions, location travel, NPC dialogue, quest advancement
+- [ ] Flesh out `GameContext.is_triggerable` and `trigger_event` with real event-condition evaluation
+- [ ] `GameContext` event queue: schedule and replay events non-interactively for scripted sequences
+- [ ] Item stack merging and split logic in `PlayerProfile.inventory`
+- [ ] Skill XP and level-up resolution using `SkillType.levels` curve
+
+### Testing & Quality
+- [ ] Full test suite (`pytest`) covering `istype`, `DataType` dispatch, `CLIEngine` matching, `str_convert`
+- [ ] Type-check the whole project with `mypy --strict` and fix remaining `Any` escapes
+- [ ] CI workflow (GitHub Actions) running tests on Python 3.12 and 3.14
+
+## License: MIT
 
 [MIT License](./LICENSE.txt)
