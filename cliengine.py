@@ -30,6 +30,21 @@ BOOL_LITERALS = TRUE_LITERALS + FALSE_LITERALS
 
 
 def bool_convert(v: str, /) -> bool:
+    """Converts a string literal to a boolean value.
+
+    Recognizes common truthy strings (``'1'``, ``'true'``, ``'yes'``, ``'y'``,
+    ``'t'``) and falsy strings (``'0'``, ``'false'``, ``'no'``, ``'n'``, ``'f'``),
+    case-insensitively.
+
+    Args:
+        v (str): The string to convert.
+
+    Returns:
+        bool: True if ``v`` is a truthy literal, False if it is a falsy literal.
+
+    Raises:
+        ValueError: If ``v`` does not match any known boolean literal.
+    """
     v = v.lower()
     if v in TRUE_LITERALS:
         return True
@@ -40,15 +55,48 @@ def bool_convert(v: str, /) -> bool:
 
 
 class ArgType:
+    """Defines a named argument type with a regex pattern and a converter function.
+
+    Attributes:
+        name (str): The name of the type (e.g. ``'int'``, ``'str'``).
+        pattern (re.Pattern): The compiled regex pattern used to validate values.
+        converter (Callable[[str], Any]): A callable that converts a valid string
+            value to the target Python type.
+    """
+
     def __init__(self, name: str, pattern: str, converter: Callable[[str], any]):
+        """Initializes an ArgType with a name, regex pattern, and converter.
+
+        Args:
+            name (str): The display name of this argument type.
+            pattern (str): A regex pattern string that valid values must fully match.
+            converter (Callable[[str], Any]): A callable that parses a matched string
+                into the desired Python type.
+        """
         self.name = name
         self.pattern = re_compile(pattern)
         self.converter = converter
 
     def is_valid(self, value: str) -> bool:
+        """Checks whether a string value matches this type's pattern.
+
+        Args:
+            value (str): The string to validate.
+
+        Returns:
+            bool: True if ``value`` fully matches the pattern, False otherwise.
+        """
         return bool(self.pattern.fullmatch(value))
 
     def convert(self, value: str):
+        """Converts a string value to this type's target Python type.
+
+        Args:
+            value (str): The string to convert.
+
+        Returns:
+            Any: The converted value.
+        """
         return self.converter(value)
 
 
@@ -61,6 +109,21 @@ ARG_TYPES: dict[str, ArgType] = {
 
 
 def parse_argtype(name: str, type_name: str | None, /):
+    """Resolves an argument type by name from the global ARG_TYPES registry.
+
+    If ``type_name`` is None, defaults to the ``'str'`` type.
+
+    Args:
+        name (str): The argument name, used for error messages.
+        type_name (str | None): The name of the desired type, or None to default
+            to ``'str'``.
+
+    Returns:
+        ArgType: The resolved ``ArgType`` instance.
+
+    Raises:
+        ValueError: If ``type_name`` is not None and not found in ``ARG_TYPES``.
+    """
     if type_name is None:
         return ARG_TYPES["str"]
 
@@ -71,7 +134,27 @@ def parse_argtype(name: str, type_name: str | None, /):
 
 
 class Arg:
+    """Represents a single parsed token in a command pattern.
+
+    Attributes:
+        kind (str): Either ``'word'`` for a literal keyword or ``'var'`` for a
+            variable argument.
+        name (str): The literal keyword or the variable's name.
+        type (ArgType): The type used to validate and convert the argument value.
+        is_optional (bool): True if the argument is optional (enclosed in ``[…]``).
+    """
+
     def __init__(self, kind: str, name: str, type_obj: ArgType | None = None, is_optional: bool = False):
+        """Initializes an Arg with its kind, name, type, and optionality.
+
+        Args:
+            kind (str): ``'word'`` for a literal token, or ``'var'`` for a typed
+                variable argument.
+            name (str): The literal keyword text or variable name.
+            type_obj (ArgType | None): The argument type. Defaults to the ``'str'``
+                ArgType if None.
+            is_optional (bool): Whether the argument is optional. Defaults to False.
+        """
         self.kind = kind
         self.name = name
         self.type = type_obj or ARG_TYPES["str"]
@@ -79,6 +162,24 @@ class Arg:
 
 
 def parse_command(s: str) -> list[Arg]:
+    """Parses a command pattern string into an ordered list of Arg objects.
+
+    Recognizes three token forms:
+
+    - ``<name>`` or ``<name:type>``: required variable argument.
+    - ``[name]`` or ``[name:type]``: optional variable argument.
+    - Any other non-whitespace sequence: literal keyword.
+
+    Args:
+        s (str): The command pattern string to parse.
+
+    Returns:
+        list[Arg]: The ordered list of parsed ``Arg`` tokens.
+
+    Raises:
+        ValueError: If a keyword appears after a variable, a required variable
+            appears after an optional one, or a variable name is duplicated.
+    """
     parts = []
     arg_names = {*()}
     saw_variable = False
@@ -118,21 +219,44 @@ def parse_command(s: str) -> list[Arg]:
 
 
 class CommandPattern:
-    """
-    Parses and match a command pattern from incoming texts.
-    Example pattern definition usage:
-        get coord <player>
-        set speed <speed:float> [<sprint:bool>]
+    """Parses and matches a command pattern against incoming token lists.
+
+    A pattern is a string of space-separated tokens where bare words match
+    literally, ``<name>`` or ``<name:type>`` denotes a required typed argument,
+    and ``[name]`` or ``[name:type]`` denotes an optional typed argument.
+
+    Example:
+        >>> cp = CommandPattern("get coord <player>")
+        >>> cp.match(["get", "coord", "Steve"])
+        {'player': 'Steve'}
+
+    Attributes:
+        pattern_str (str): The original pattern string.
+        parts (list[Arg]): The parsed sequence of Arg tokens.
     """
 
     pattern_str: str
     parts: list[Arg]
 
     def __init__(self, pattern_str: str):
+        """Parses the given pattern string into an ordered list of Arg parts.
+
+        Args:
+            pattern_str (str): The command pattern string to parse.
+        """
         self.pattern_str = pattern_str
         self.parts = parse_command(pattern_str)
 
     def match(self, tokens: list[str]) -> dict[str: any] | None:
+        """Attempts to match a list of tokens against this command pattern.
+
+        Args:
+            tokens (list[str]): The tokenized input to match.
+
+        Returns:
+            dict[str, Any] | None: A dict mapping variable names to their converted
+                values if the tokens match, or None if they do not.
+        """
         idx = 0
         parsed = {}
 
@@ -160,18 +284,21 @@ class CommandPattern:
         return parsed
 
     def is_covered_by(self, pattern: "CommandPattern") -> bool:
-        """
-        Determine if instance is fully overshadowed by given pattern,
-        i.e., that if the given pattern is matched for first, the self
-        instance will never match.
+        """Determines if this pattern is fully overshadowed by another pattern.
 
-        :param self: The instance.
-        :param pattern: The pattern to check overshadowing with.
-        :type pattern: CommandPattern
-        :return: Whether if the instance is fully overshadowed.
-        :rtype: bool
+        A pattern is overshadowed if every input that could match this pattern
+        would always match the given ``pattern`` first, meaning this instance
+        would never be reached.
 
-        :raises ValueError: If the argument kind is unrecognized.
+        Args:
+            pattern (CommandPattern): The pattern to check coverage against.
+
+        Returns:
+            bool: True if this pattern is fully covered by ``pattern``,
+                False otherwise.
+
+        Raises:
+            ValueError: If an unrecognized argument kind is encountered.
         """
         if len(pattern.parts) < len(self.parts):
             return False
@@ -205,7 +332,27 @@ CHECK_PATTERN_COVERAGE: bool = True
 
 
 class Command:
+    """Represents a named CLI command with associated patterns and a handler function.
+
+    At construction time, if ``CHECK_PATTERN_COVERAGE`` is enabled, a warning is
+    printed for any pattern that is fully covered by a preceding pattern.
+
+    Attributes:
+        name (str): The unique name of the command.
+        func (Callable): The handler function called when the command matches.
+        patterns (list[CommandPattern]): The parsed command patterns.
+    """
+
     def __init__(self, name: str, func: Callable, patterns: list[str]):
+        """Initializes a Command and optionally checks for pattern coverage.
+
+        Args:
+            name (str): The name of the command.
+            func (Callable): The function to call when the command matches, with
+                signature ``func(ctx, **parsed_args)``.
+            patterns (list[str]): A list of pattern strings to register for this
+                command.
+        """
         self.name = name
         self.func = func
         self.patterns = [CommandPattern(p) for p in patterns]
@@ -217,6 +364,15 @@ class Command:
                               f" pattern {i + 1} (command {self.name!r})")
 
     def try_match(self, tokens: list[str]) -> Match:
+        """Tries each pattern in order and returns the first match result.
+
+        Args:
+            tokens (list[str]): The tokenized input to match against.
+
+        Returns:
+            dict[str, Any] | None: The parsed argument dict from the first matching
+                pattern, or None if no pattern matches.
+        """
         for p in self.patterns:
             parsed = p.match(tokens)
             if parsed is not None:
@@ -224,11 +380,31 @@ class Command:
         return
 
     def call(self, ctx, parsed_args: dict):
+        """Invokes the command's handler function with parsed arguments.
+
+        Args:
+            ctx: The context object passed as the first argument to the handler.
+            parsed_args (dict): Keyword arguments from pattern matching to pass
+                to the handler.
+
+        Returns:
+            Any: The return value of the handler function.
+        """
         return self.func(ctx, **parsed_args)
 
 
 def tokenize(s: str) -> list[str]:
-    """Supporting strings as the same token along with keywords and numbers."""
+    """Splits a command string into tokens, respecting quoted strings and escapes.
+
+    Quoted substrings (single or double quotes) are treated as a single token.
+    Backslash escaping is supported within both quoted and unquoted contexts.
+
+    Args:
+        s (str): The raw command input string to tokenize.
+
+    Returns:
+        list[str]: The list of extracted tokens.
+    """
     tokens = []
     buf = []
     in_quotes = False
@@ -267,22 +443,53 @@ def tokenize(s: str) -> list[str]:
 
 
 class CLIEngine:
+    """A simple command-line interpreter engine that dispatches text commands.
+
+    Commands are registered by name with one or more pattern strings. Input text
+    is tokenized and matched against registered command patterns to invoke the
+    corresponding handler.
+
+    Attributes:
+        commands (dict[str, Command]): The registry of registered commands,
+            keyed by name.
+    """
+
     def __init__(self):
+        """Initializes the CLIEngine and registers the built-in commands."""
         self.commands: dict[str, Command] = {}
         self._register_builtin_commands()
 
     def register(self, cmd: Command):
+        """Registers a Command object with the engine.
+
+        Args:
+            cmd (Command): The command to register.
+
+        Raises:
+            ValueError: If a command with the same name is already registered.
+        """
         if cmd.name in self.commands:
             raise ValueError(f"Duplicate command name '{cmd.name}'")
         self.commands[cmd.name] = cmd
 
     def add_command(self, name: str, patterns: list[str]) -> Callable:
+        """Returns a decorator that registers the decorated function as a command.
+
+        Args:
+            name (str): The name of the command to register.
+            patterns (list[str]): The list of pattern strings for the command.
+
+        Returns:
+            Callable: A decorator that wraps the function in a ``Command``,
+                registers it, and returns the original function unchanged.
+        """
         def wrapper(func: Callable):
             self.register(Command(name, func, patterns))
             return func
         return wrapper
 
     def _register_builtin_commands(self):
+        """Registers the built-in ``help`` and ``exit`` commands."""
         self.register(Command(
             name="help",
             func=self._cmd_help,
@@ -296,8 +503,15 @@ class CLIEngine:
         ))
 
     def _cmd_help(self, ctx, command=None):
-        """
-        List the available commands or show help for command if specified.
+        """Lists available commands or shows pattern help for a specific command.
+
+        Args:
+            ctx: The current context (unused).
+            command (str | None): The name of the command to look up, or None to
+                list all commands.
+
+        Returns:
+            dict: A result dict with ``'type': 'help'`` and a ``'content'`` string.
         """
         if command is None:
             out = ["Available commands:"]
@@ -321,12 +535,31 @@ class CLIEngine:
         return {"type": "help", "content": content}
 
     def _cmd_exit(self, ctx):
-        """
-        Exit the current process.
+        """Signals that the CLI session should exit.
+
+        Args:
+            ctx: The current context (unused).
+
+        Returns:
+            dict: A result dict with ``'type': 'exit'``.
         """
         return {"type": "exit"}
 
     def run_command(self, ctx, text: str):
+        """Tokenizes and dispatches a text command to the matching handler.
+
+        Iterates over all registered commands and returns the result of the first
+        matching one. If no command matches, returns an unknown-command result dict.
+
+        Args:
+            ctx: The context object passed to the matched command handler.
+            text (str): The raw command input string.
+
+        Returns:
+            dict: The result dict from the matched command handler, or
+                ``{'type': 'unknown_command', 'text': ..., 'command': ...}``
+                if no match is found.
+        """
         tokens = tokenize(text)
 
         for cmd in self.commands.values():

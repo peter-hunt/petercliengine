@@ -72,6 +72,7 @@ class Achievement(DataType):
 # narration, tutorial, unlocking content, world-shift moments
 class Event(DataType):
     # trigger condition/requirement
+    # - always/never
     # - quest stage/failed, story branch
     # - skill level, skill branch, power estimation, item/resource
     # - location, area/world state, time, other events
@@ -87,6 +88,7 @@ class Event(DataType):
         Variable("trigger", list[list[str | Any]]),  # list of type and content
         Variable("narration", list[str]),
         Variable("rewards", list[list[str | Any]]),  # list of type and content
+        Variable("max_occurances", int),
     ]
 
 
@@ -111,6 +113,7 @@ class SkillType(DataType):
     variables = [
         Variable("id", str),
         Variable("name", str),
+        Variable("levels", list[int]),
     ]
 
 
