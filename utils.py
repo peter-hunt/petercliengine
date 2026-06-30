@@ -1,6 +1,9 @@
 from re import fullmatch
 from types import GenericAlias, UnionType
-from typing import Any, Callable, get_args
+from typing import Any, Callable, ParamSpec, TypeVar, cast, get_args
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 
 __all__ = [
@@ -13,19 +16,20 @@ __all__ = [
 ]
 
 
-def catch_interrupt(func: Callable) -> Callable:
-    def wrapper(*args, **kwargs):
+def catch_interrupt(func: Callable[_P, _T]) -> Callable[_P, _T | None]:
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T | None:
         try:
             return func(*args, **kwargs)
         except (EOFError, KeyboardInterrupt):
             print("\nProcess interrupted.")
+            return None
     wrapper.__doc__ = func.__doc__
     wrapper.__annotations__ = func.__annotations__
     return wrapper
 
 
-def catch_interrupt_with_api(func: Callable) -> Callable:
-    def wrapper(*args, **kwargs):
+def catch_interrupt_with_api(func: Callable[_P, Any]) -> Callable[_P, Any]:
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Any:
         try:
             return func(*args, **kwargs)
         except (EOFError, KeyboardInterrupt):
@@ -36,12 +40,12 @@ def catch_interrupt_with_api(func: Callable) -> Callable:
     return wrapper
 
 
-def catch_interrupt_silent(func: Callable) -> Callable:
-    def wrapper(*args, **kwargs):
+def catch_interrupt_silent(func: Callable[_P, _T]) -> Callable[_P, _T | None]:
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T | None:
         try:
             return func(*args, **kwargs)
         except (EOFError, KeyboardInterrupt):
-            return
+            return None
     return wrapper
 
 
@@ -64,10 +68,11 @@ def istype(obj: object, type_: TypeLike, /) -> bool:
     elif isinstance(type_, UnionType):
         return any(istype(obj, subtype) for subtype in get_args(type_))
     elif isinstance(type_, GenericAlias):
-        if not isinstance(obj, type_.__origin__):
+        if not isinstance(obj, type_.__origin__):  # type: ignore[arg-type]
             return False
         args = get_args(type_)
         if type_.__origin__ is tuple:
+            obj_tuple = cast("tuple[Any, ...]", obj)
             if any(type_arg is Ellipsis for i, type_arg in enumerate(args) if i != 1):
                 raise ValueError("\"...\" is allowed only as the"
                                  " second of two arguments")
@@ -75,23 +80,23 @@ def istype(obj: object, type_: TypeLike, /) -> bool:
                 raise ValueError("\"...\" is allowed only as the"
                                  " second of two arguments")
             if len(args) == 1 and args[0] == ():
-                return obj == ()
+                return obj_tuple == ()
             if len(args) == 2:
                 if args[1] is Ellipsis:
-                    return all(istype(item, args[0]) for item in type_)
-            return len(obj) == len(args) and all(
+                    return all(istype(item, args[0]) for item in obj_tuple)
+            return len(obj_tuple) == len(args) and all(
                 istype(item, subtype)
-                for item, subtype in zip(obj, args)
+                for item, subtype in zip(obj_tuple, args)
             )
         elif type_.__origin__ is list:
             return all(istype(item, args[0])
-                       for item in obj)
+                       for item in cast("list[Any]", obj))
         elif type_.__origin__ is set:
             return all(istype(item, args[0])
-                       for item in obj)
+                       for item in cast("set[Any]", obj))
         elif type_.__origin__ is dict:
             return all(istype(key, args[0]) and istype(value, args[1])
-                       for key, value in obj.items())
+                       for key, value in cast("dict[Any, Any]", obj).items())
         else:
             raise TypeError(
                 f"unrecognized generic alias origin:"
@@ -115,7 +120,7 @@ def match_input(pattern: str, /, strip: bool = False) -> str:
         print("Invalid format, try again.")
 
 
-def main():
+def main() -> None:
     print("--- istype ---")
     print(istype("hello", str))                  # True
     print(istype(42, int | str))                 # True
@@ -128,7 +133,7 @@ def main():
     print("\n--- catch_interrupt_with_api ---")
 
     @catch_interrupt_with_api
-    def risky():
+    def risky() -> None:
         raise KeyboardInterrupt
 
     print(risky())  # {'type': 'interrupted'}
@@ -136,7 +141,7 @@ def main():
     print("\n--- catch_interrupt_silent ---")
 
     @catch_interrupt_silent
-    def quiet():
+    def quiet() -> None:
         raise KeyboardInterrupt
 
     print(quiet())  # None

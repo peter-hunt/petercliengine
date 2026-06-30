@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  typecheck:
+    name: mypy --strict
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install mypy
+        run: pip install mypy
+
+      - name: Run mypy (strict)
+        run: |
+          python -m mypy --strict --ignore-missing-imports --explicit-package-bases \
+            str_convert.py utils.py color.py datatype.py cliengine.py \
+            myjson/ models/ profile_manage.py
+
+  test:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.14-dev"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+
+      - name: Install dependencies
+        run: pip install pytest
+
+      - name: Run pytest
+        run: python -m pytest tests/ -v

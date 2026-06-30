@@ -1,7 +1,7 @@
 from sys import version_info
 
-if version_info < (3, 14, 2):
-    raise Exception("Python version of at least 3.14.2"
+if version_info < (3, 12, 0):
+    raise Exception("Python version of at least 3.12.0"
                     " is required for PeterCLIEngine.")
 
 

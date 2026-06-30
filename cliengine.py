@@ -1,17 +1,19 @@
 from re import Match, compile as re_compile, VERBOSE
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
+_readline: Any = None
+_READLINE_AVAILABLE: bool = False
 try:
     import readline as _readline
     _READLINE_AVAILABLE = True
 except ImportError:
-    _readline = None
-    _READLINE_AVAILABLE = False
+    pass
 
 
 __all__ = [
     "bool_convert",
     "ArgType", "ARG_TYPES", "parse_argtype",
+    "register_argtype", "replace_argtype",
     "Arg",
 
     "CommandPattern", "Command",
@@ -95,7 +97,7 @@ class ArgType:
         """
         return bool(self.pattern.fullmatch(value))
 
-    def convert(self, value: str):
+    def convert(self, value: str) -> Any:
         """Converts a string value to this type's target Python type.
 
         Args:
@@ -115,7 +117,37 @@ ARG_TYPES: dict[str, ArgType] = {
 }
 
 
-def parse_argtype(name: str, type_name: str | None, /):
+def register_argtype(argtype: ArgType, /) -> None:
+    """Register a custom :class:`ArgType` in the global ``ARG_TYPES`` registry.
+
+    After registration the type is available by name in all command pattern
+    strings (e.g. ``"go <direction:compass>"``).
+
+    Args:
+        argtype: The :class:`ArgType` instance to register.
+
+    Raises:
+        ValueError: If a type with the same name is already registered.
+    """
+    if argtype.name in ARG_TYPES:
+        raise ValueError(
+            f"ArgType {argtype.name!r} is already registered. "
+            f"Use replace_argtype() to replace an existing type.")
+    ARG_TYPES[argtype.name] = argtype
+
+
+def replace_argtype(argtype: ArgType, /) -> None:
+    """Replace or add a custom :class:`ArgType` in the global ``ARG_TYPES`` registry.
+
+    Unlike :func:`register_argtype`, this silently overwrites an existing entry.
+
+    Args:
+        argtype: The :class:`ArgType` instance to register or replace.
+    """
+    ARG_TYPES[argtype.name] = argtype
+
+
+def parse_argtype(name: str, type_name: str | None, /) -> ArgType:
     """Resolves an argument type by name from the global ARG_TYPES registry.
 
     If ``type_name`` is None, defaults to the ``'str'`` type.
@@ -254,7 +286,7 @@ class CommandPattern:
         self.pattern_str = pattern_str
         self.parts = parse_command(pattern_str)
 
-    def match(self, tokens: list[str]) -> dict[str: any] | None:
+    def match(self, tokens: list[str]) -> dict[str, Any] | None:
         """Attempts to match a list of tokens against this command pattern.
 
         Args:
@@ -270,11 +302,11 @@ class CommandPattern:
         for arg in self.parts:
             if arg.kind == "word":
                 if idx >= len(tokens) or tokens[idx] != arg.name:
-                    return
+                    return None
                 idx += 1
             elif arg.kind == "var" and not arg.is_optional:
                 if idx >= len(tokens) or not arg.type.is_valid(tokens[idx]):
-                    return
+                    return None
                 parsed[arg.name] = arg.type.convert(tokens[idx])
                 idx += 1
             elif arg.kind == "var" and arg.is_optional:
@@ -287,7 +319,7 @@ class CommandPattern:
                 raise ValueError(f"unknown arg kind: {arg}")
 
         if idx != len(tokens):
-            return
+            return None
         return parsed
 
     def is_covered_by(self, pattern: "CommandPattern") -> bool:
@@ -323,9 +355,9 @@ class CommandPattern:
                 if parg.kind == "word":
                     return False
                 elif parg.kind == "var":
-                    if sarg.type != parg.type and parg.type != "str":
+                    if sarg.type != parg.type and parg.type.name != "str":
                         return False
-                    if not sarg.is_optional and parg.is_optional:
+                    if sarg.is_optional and not parg.is_optional:
                         return False
                 else:
                     raise ValueError(f"unknown arg kind: {parg}")
@@ -346,11 +378,18 @@ class Command:
 
     Attributes:
         name (str): The unique name of the command.
+        aliases (list[str]): Short names / abbreviations that also trigger this command.
         func (Callable): The handler function called when the command matches.
         patterns (list[CommandPattern]): The parsed command patterns.
+        value_completer (Callable[[str, str], list[str]] | None): Optional callback
+            invoked during readline tab-completion to provide argument value
+            suggestions.  Called as ``value_completer(arg_name, partial_text)``
+            and should return a list of candidate strings.
     """
 
-    def __init__(self, name: str, func: Callable, patterns: list[str]):
+    def __init__(self, name: str, func: Callable[..., Any], patterns: list[str],
+                 aliases: list[str] | None = None,
+                 value_completer: Callable[[str, str], list[str]] | None = None):
         """Initializes a Command and optionally checks for pattern coverage.
 
         Args:
@@ -359,8 +398,15 @@ class Command:
                 signature ``func(ctx, **parsed_args)``.
             patterns (list[str]): A list of pattern strings to register for this
                 command.
+            aliases (list[str] | None): Optional short names / abbreviations that
+                also dispatch to this command.
+            value_completer (Callable[[str, str], list[str]] | None): Optional
+                callback ``(arg_name, partial_text) -> [candidate, ...]`` used to
+                complete argument values during readline Tab expansion.
         """
         self.name = name
+        self.aliases = list(aliases) if aliases else []
+        self.value_completer = value_completer
         self.func = func
         self.patterns = [CommandPattern(p) for p in patterns]
         if CHECK_PATTERN_COVERAGE:
@@ -370,7 +416,7 @@ class Command:
                         print(f"Warning: pattern {j + 1} fully covers"
                               f" pattern {i + 1} (command {self.name!r})")
 
-    def try_match(self, tokens: list[str]) -> Match:
+    def try_match(self, tokens: list[str]) -> dict[str, Any] | None:
         """Tries each pattern in order and returns the first match result.
 
         Args:
@@ -384,9 +430,9 @@ class Command:
             parsed = p.match(tokens)
             if parsed is not None:
                 return parsed
-        return
+        return None
 
-    def call(self, ctx, parsed_args: dict):
+    def call(self, ctx: Any, parsed_args: dict[str, Any]) -> Any:
         """Invokes the command's handler function with parsed arguments.
 
         Args:
@@ -463,46 +509,66 @@ class CLIEngine:
             via :meth:`run_command` or :meth:`read_command`.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initializes the CLIEngine and registers the built-in commands."""
         self.commands: dict[str, Command] = {}
         self.history: list[str] = []
         self._readline_setup: bool = False
+        self._input_locked: bool = False
+        self._input_buffer: list[str] = []
         self._register_builtin_commands()
 
-    def register(self, cmd: Command):
+    def register(self, cmd: Command) -> None:
         """Registers a Command object with the engine.
+
+        Also registers every alias listed in ``cmd.aliases`` as additional
+        lookup keys pointing to the same Command object.
 
         Args:
             cmd (Command): The command to register.
 
         Raises:
-            ValueError: If a command with the same name is already registered.
+            ValueError: If a command with the same name (or any alias) is
+                already registered.
         """
         if cmd.name in self.commands:
             raise ValueError(f"Duplicate command name '{cmd.name}'")
+        for alias in cmd.aliases:
+            if alias in self.commands:
+                raise ValueError(
+                    f"Alias '{alias}' conflicts with existing command")
         self.commands[cmd.name] = cmd
+        for alias in cmd.aliases:
+            self.commands[alias] = cmd
         # invalidate cached completions whenever commands change
         self._readline_setup = False
 
-    def add_command(self, name: str, patterns: list[str]) -> Callable:
+    def add_command(self, name: str, patterns: list[str],
+                    aliases: list[str] | None = None,
+                    value_completer: Callable[[str, str], list[str]] | None = None) -> Callable[..., Any]:
         """Returns a decorator that registers the decorated function as a command.
 
         Args:
             name (str): The name of the command to register.
             patterns (list[str]): The list of pattern strings for the command.
+            aliases (list[str] | None): Optional short names that also dispatch
+                to this command.
+            value_completer (Callable[[str, str], list[str]] | None): Optional
+                callback ``(arg_name, partial_text) -> [candidate, ...]`` used
+                during readline Tab completion to suggest argument values.
 
         Returns:
             Callable: A decorator that wraps the function in a ``Command``,
                 registers it, and returns the original function unchanged.
         """
-        def wrapper(func: Callable):
-            self.register(Command(name, func, patterns))
+        def wrapper(func: Callable[..., Any]) -> Callable[..., Any]:
+            self.register(Command(name, func, patterns, aliases=aliases,
+                                  value_completer=value_completer))
             return func
         return wrapper
 
-    def _register_builtin_commands(self):
-        """Registers the built-in ``help`` and ``exit`` commands."""
+    def _register_builtin_commands(self) -> None:
+        """Registers the built-in ``help``, ``exit``, and ``repeat`` commands."""
         self.register(Command(
             name="help",
             func=self._cmd_help,
@@ -515,7 +581,13 @@ class CLIEngine:
             patterns=["exit", "quit"]
         ))
 
-    def _cmd_help(self, ctx, command=None):
+        self.register(Command(
+            name="repeat",
+            func=self._cmd_repeat,
+            patterns=["repeat", "!!"]
+        ))
+
+    def _cmd_help(self, ctx: Any, command: str | None = None) -> dict[str, Any]:
         """Lists available commands or shows pattern help for a specific command.
 
         Args:
@@ -528,8 +600,14 @@ class CLIEngine:
         """
         if command is None:
             out = ["Available commands:"]
+            seen = set()
             for name in sorted(self.commands):
-                out.append(f"- {name}")
+                cmd = self.commands[name]
+                if cmd.name in seen:
+                    continue
+                seen.add(cmd.name)
+                alias_str = f"  (aliases: {', '.join(cmd.aliases)})" if cmd.aliases else ""
+                out.append(f"- {cmd.name}{alias_str}")
             out.append("\nType 'help <command>' for details.")
             content = "\n".join(out)
             return {"type": "help", "content": content}
@@ -540,6 +618,8 @@ class CLIEngine:
 
         cmd = self.commands[command]
         lines = [f"Help for command '{cmd.name}':"]
+        if cmd.aliases:
+            lines.append(f"Aliases: {', '.join(cmd.aliases)}")
         for p in cmd.patterns:
             lines.append(f"- {p.pattern_str}")
         if cmd.func.__doc__:
@@ -547,7 +627,7 @@ class CLIEngine:
         content = "\n".join(lines)
         return {"type": "help", "content": content}
 
-    def _cmd_exit(self, ctx):
+    def _cmd_exit(self, ctx: Any) -> dict[str, Any]:
         """Signals that the CLI session should exit.
 
         Args:
@@ -558,11 +638,44 @@ class CLIEngine:
         """
         return {"type": "exit"}
 
-    def run_command(self, ctx, text: str):
+    def _cmd_repeat(self, ctx: Any) -> dict[str, Any]:
+        """Re-runs the most-recently submitted history entry.
+
+        Looks up the last entry in :attr:`history`, dispatches it as a new
+        command, and returns the result.  If history is empty, returns a
+        failure result.
+
+        Args:
+            ctx: The context object forwarded to the repeated command.
+
+        Returns:
+            dict: The result of running the previous command, or
+                ``{'type': 'failed'}`` when there is no history.
+        """
+        if not self.history:
+            print("No previous command in history.")
+            return {"type": "failed"}
+        last = self.history[-1]
+        # Guard against infinite recursion if last command was itself !! / repeat
+        tokens = tokenize(last)
+        if tokens and tokens[0] in ("!!", "repeat"):
+            print("Cannot repeat a repeat command.")
+            return {"type": "failed"}
+        return self.run_command(ctx, last)
+
+    def run_command(self, ctx: Any, text: str) -> dict[str, Any]:
         """Tokenizes and dispatches a text command to the matching handler.
 
+        When the engine is locked (see :meth:`lock_input`), the command is
+        added to the internal buffer and ``{'type': 'buffered'}`` is returned
+        without dispatching.
+
         Iterates over all registered commands and returns the result of the first
-        matching one. If no command matches, returns an unknown-command result dict.
+        matching one.  When the first token matches a command alias, it is
+        substituted with the canonical command name before pattern matching so
+        that alias users see identical behaviour to the canonical name.
+
+        If no command matches, returns an unknown-command result dict.
 
         Args:
             ctx: The context object passed to the matched command handler.
@@ -571,16 +684,64 @@ class CLIEngine:
         Returns:
             dict: The result dict from the matched command handler, or
                 ``{'type': 'unknown_command', 'text': ..., 'command': ...}``
-                if no match is found.
+                if no match is found, or ``{'type': 'buffered'}`` when locked.
         """
+        if self._input_locked:
+            self._input_buffer.append(text)
+            return {"type": "buffered"}
+
         tokens = tokenize(text)
+
+        first = tokens[0] if tokens else ""
+        if first in self.commands:
+            cmd = self.commands[first]
+            # If dispatched via alias, replace first token with canonical name
+            if first != cmd.name:
+                tokens = [cmd.name] + tokens[1:]
+            parsed = cmd.try_match(tokens)
+            if parsed is not None:
+                return cast(dict[str, Any], cmd.call(ctx, parsed))
 
         for cmd in self.commands.values():
             parsed = cmd.try_match(tokens)
             if parsed is not None:
-                return cmd.call(ctx, parsed)
+                return cast(dict[str, Any], cmd.call(ctx, parsed))
 
-        return {"type": "unknown_command", "text": text, "command": tokens[0]}
+        return {"type": "unknown_command", "text": text, "command": first}
+
+    # ------------------------------------------------------------------
+    # Input locking (narrations / dialogues)
+    # ------------------------------------------------------------------
+
+    def lock_input(self) -> None:
+        """Block command processing; commands entered while locked are buffered.
+
+        While the engine is locked :meth:`run_command` queues any input in an
+        internal buffer instead of dispatching it immediately.  Call
+        :meth:`unlock_input` to release the lock and flush the buffer.
+        """
+        self._input_locked = True
+
+    def unlock_input(self, ctx: Any = None) -> None:
+        """Release the input lock and flush any buffered commands.
+
+        Each buffered command is dispatched in order via :meth:`run_command`.
+        The results are silently discarded unless the caller wraps this
+        method or inspects :attr:`history`.
+
+        Args:
+            ctx: The context object forwarded to each replayed command.
+        """
+        self._input_locked = False
+        pending = self._input_buffer[:]
+        self._input_buffer.clear()
+        for cmd_text in pending:
+            self.run_command(ctx, cmd_text)
+
+    @property
+    def input_locked(self) -> bool:
+        """True when command processing is currently locked."""
+        return self._input_locked
 
     # ------------------------------------------------------------------
     # History
@@ -634,10 +795,55 @@ class CLIEngine:
         def completer(text: str, state: int) -> str | None:
             nonlocal candidates
             if state == 0:
-                candidates = [
-                    name for name in self.commands
-                    if name.startswith(text)
-                ]
+                try:
+                    import readline as _rl
+                    line = _rl.get_line_buffer()
+                except Exception:
+                    line = text
+                tokens = tokenize(line) if line.strip() else []
+                # If the line ends with a space, the current word is empty and
+                # we're starting a new token; otherwise the last token is partial.
+                ends_with_space = line.endswith(' ')
+                completed_tokens = tokens if ends_with_space else tokens[:-1]
+
+                if not completed_tokens:
+                    # completing the command name (or alias)
+                    candidates = [
+                        name for name in self.commands
+                        if name.startswith(text)
+                    ]
+                else:
+                    cmd_word = completed_tokens[0]
+                    cmd = self.commands.get(cmd_word)
+                    if cmd is None:
+                        candidates = []
+                    elif cmd.value_completer is not None:
+                        # Determine which argument we're completing by walking
+                        # through the best-matching pattern.
+                        arg_name = None
+                        # +1 because completed_tokens includes the command word
+                        arg_index = len(completed_tokens) - \
+                            1  # 0-based variable index
+                        var_args = [a for p in cmd.patterns
+                                    for a in p.parts if a.kind == "var"]
+                        # deduplicate while preserving first occurrence
+                        seen_names: set[str] = set()
+                        unique_vars = []
+                        for a in var_args:
+                            if a.name not in seen_names:
+                                seen_names.add(a.name)
+                                unique_vars.append(a)
+                        if arg_index < len(unique_vars):
+                            arg_name = unique_vars[arg_index].name
+                        if arg_name:
+                            candidates = [
+                                c for c in cmd.value_completer(arg_name, text)
+                                if c.startswith(text)
+                            ]
+                        else:
+                            candidates = []
+                    else:
+                        candidates = []
             return candidates[state] if state < len(candidates) else None
 
         _readline.set_completer(completer)
@@ -649,7 +855,8 @@ class CLIEngine:
 
         Sets up readline tab-completion on the first call (if available),
         records each non-empty input to :attr:`history`, and returns the
-        stripped text.
+        stripped text.  When a history file was configured via
+        :meth:`setup_readline`, it is written out after each non-empty command.
 
         Args:
             prompt: The prompt string shown to the user.
@@ -664,22 +871,28 @@ class CLIEngine:
         text = input(prompt).strip()
         if text:
             self.push_history(text)
+            history_file = getattr(self, "_readline_history_file", None)
+            if _READLINE_AVAILABLE and history_file:
+                try:
+                    _readline.write_history_file(history_file)
+                except OSError:
+                    pass
         return text
 
 
-def main():
+def main() -> None:
     class SampleGameContext:
-        def hello(self):
+        def hello(self) -> str:
             return "Hello from game!"
 
-    def cmd_add(ctx, a: int, b: int):
+    def cmd_add(ctx: Any, a: int, b: int) -> dict[str, Any]:
         """
         Adds two integers together.
         Integers prefered.
         """
         return {"type": "numerical", "value": a + b}
 
-    def cmd_hello(ctx, content: str):
+    def cmd_hello(ctx: Any, content: str) -> dict[str, Any]:
         print(f"Hello: {content!r}")
         return {"type": "success"}
 
@@ -693,7 +906,7 @@ def main():
     # engine.register(Command("say", cmd_say, ["say <content:str>"]))
 
     @engine.add_command("say", ["say <content:str>"])
-    def cmd_say(ctx, content: str):
+    def cmd_say(ctx: Any, content: str) -> dict[str, Any]:
         print(f"Saying: {content!r}")
         return {"type": "success"}
 

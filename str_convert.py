@@ -34,7 +34,7 @@ def to_kebab_case(name: str) -> str:
     return to_snake_case(name).replace('_', '-')
 
 
-def main():
+def main() -> None:
     samples = [
         "camelCaseString",
         "PascalCase",

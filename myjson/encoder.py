@@ -1,18 +1,19 @@
 from decimal import Context
 from math import isinf, isnan
+from typing import Any
 
 
 ctx = Context()
 ctx.prec = 20
 
 
-def _float_to_str(f):
+def _float_to_str(f: float) -> str:
     d1 = ctx.create_decimal(repr(f))
     return format(d1, 'f')
 
 
-def _dumps(obj, /, *, current_indent=0, current_width=0,
-           indent=2, sort_keys=True):
+def _dumps(obj: Any, /, *, current_indent: int = 0, current_width: int = 0,
+           indent: int = 2, sort_keys: bool = True) -> str:
     if obj is None:
         return 'null'
     elif isinstance(obj, bool):
@@ -27,12 +28,21 @@ def _dumps(obj, /, *, current_indent=0, current_width=0,
         else:
             return f'{obj}'
     elif isinstance(obj, str):
+        ESCAPE_MAP = {
+            '"': '\\"',
+            '\\': '\\\\',
+            '\b': '\\b',
+            '\f': '\\f',
+            '\n': '\\n',
+            '\r': '\\r',
+            '\t': '\\t',
+        }
         result = ''
         for char in obj:
-            if char == '"':
-                result += '\\"'
-            elif char in {'\b', '\f', '\n', '\r', '\t', '\v', '\\'}:
-                result += f'{char!r}'
+            if char in ESCAPE_MAP:
+                result += ESCAPE_MAP[char]
+            elif ord(char) < 0x20:
+                result += f'\\u{ord(char):04x}'
             else:
                 result += char
         return f'"{result}"'
@@ -93,14 +103,19 @@ def _dumps(obj, /, *, current_indent=0, current_width=0,
             )
         result += '\n' + ' ' * current_indent + '}'
         return result
+    elif hasattr(obj, 'dumps') and callable(obj.dumps):
+        # DataType (and any duck-typed object) with a .dumps() -> dict method
+        return _dumps(obj.dumps(), current_indent=current_indent,
+                      current_width=current_width, indent=indent,
+                      sort_keys=sort_keys)
     else:
         return f'{obj!r}'
 
 
-def dumps(obj, /, *, indent=2, sort_keys=False):
+def dumps(obj: Any, /, *, indent: int = 2, sort_keys: bool = False) -> str:
     return _dumps(obj, indent=indent, sort_keys=sort_keys)
 
 
-def dump(obj, file, /, *, indent=2, sort_keys=False):
+def dump(obj: Any, file: Any, /, *, indent: int = 2, sort_keys: bool = False) -> None:
     content = _dumps(obj, indent=indent, sort_keys=sort_keys)
     file.write(content)

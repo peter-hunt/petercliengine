@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from io import TextIOWrapper
 from re import fullmatch
-from typing import Any
+from typing import Any, Self
 
 from myjson import load as json_load, dump as json_dump
 from str_convert import to_snake_case
@@ -14,7 +14,10 @@ __all__ = [
 ]
 
 
-Immutable = int | float | complex | bool | str | tuple | bytes | range | frozenset
+Immutable = int | float | complex | bool | str | tuple[Any,
+                                                       ...] | bytes | range | frozenset[Any]
+_IMMUTABLE_CLASSES = (int, float, complex, bool, str,
+                      tuple, bytes, range, frozenset)
 
 
 class Variable:
@@ -39,14 +42,14 @@ class Variable:
     default: Any | None
     default_factory: Callable[[], Any] | None
     validator: Callable[[Any], bool] | None
-    loader: Callable[[Any], dict] | None
-    dumper: Callable[[Any], dict] | None
+    loader: Callable[[Any], dict[str, Any]] | None
+    dumper: Callable[[Any], dict[str, Any]] | None
 
     def __init__(self, name: str, type: TypeLike,
-                 default: Any | None = None, default_factory: Callable | None = None,
+                 default: Any | None = None, default_factory: Callable[[], Any] | None = None,
                  validator: Callable[[Any], bool] | None = None,
-                 loader: Callable[[Any], dict] | None = None,
-                 dumper: Callable[[Any], dict] | None = None):
+                 loader: Callable[[Any], dict[str, Any]] | None = None,
+                 dumper: Callable[[Any], dict[str, Any]] | None = None):
         """Initializes a Variable with the given name, type, and optional fields.
 
         Args:
@@ -101,8 +104,35 @@ class Variable:
         self.loader = loader
         self.dumper = dumper
 
+        # Validate default value if provided
+        if self.default is not None:
+            if not istype(self.default, self.type):
+                raise TypeError(
+                    f"Default value {self.default!r} for variable {self.name!r} "
+                    f"is not of type {self.type}")
+            if self.validator is not None and not self.validator(self.default):
+                raise ValueError(
+                    f"Default value {self.default!r} for variable {self.name!r} "
+                    f"failed validation check")
+
+        # Validate default value produced by factory if provided
+        if self.default_factory is not None:
+            try:
+                val = self.default_factory()
+            except Exception as e:
+                raise ValueError(
+                    f"Default factory for variable {self.name!r} raised an exception: {e}") from e
+            if not istype(val, self.type):
+                raise TypeError(
+                    f"Default factory for variable {self.name!r} produced value {val!r} "
+                    f"which is not of type {self.type}")
+            if self.validator is not None and not self.validator(val):
+                raise ValueError(
+                    f"Default factory for variable {self.name!r} produced value {val!r} "
+                    f"which failed validation check")
+
     @property
-    def default_value(self):
+    def default_value(self) -> Any:
         """The resolved default value for this variable.
 
         Returns the static ``default`` if set, otherwise calls ``default_factory``
@@ -122,7 +152,7 @@ class Variable:
             raise ValueError(f"default value not provided"
                              f" for variable {self.name!r}")
 
-    def load(self, value: Any, /):
+    def load(self, value: Any, /) -> Any:
         """Transforms a raw value using the loader, if one is defined.
 
         Args:
@@ -133,7 +163,7 @@ class Variable:
         """
         return value if self.loader is None else self.loader(value)
 
-    def dump(self, value: Any, /):
+    def dump(self, value: Any, /) -> Any:
         """Transforms a value using the dumper, if one is defined.
 
         Args:
@@ -144,7 +174,7 @@ class Variable:
         """
         return value if self.dumper is None else self.dumper(value)
 
-    def validate(self, value: Any, /):
+    def validate(self, value: Any, /) -> bool:
         """Validates a value using the validator, if one is defined.
 
         Args:
@@ -170,6 +200,7 @@ def get_var(variables: list[Variable], name: str, /) -> Variable | None:
     for var in variables:
         if var.name == name:
             return var
+    return None
 
 
 class DataType:
@@ -192,7 +223,7 @@ class DataType:
     variables: list[Variable]
     DUMP_DEFAULTS: bool = False
 
-    def __init_subclass__(cls):
+    def __init_subclass__(cls) -> None:
         """Validates and configures a DataType subclass when it is defined.
 
         Automatically assigns ``datatype_id`` from the class name if not explicitly
@@ -236,12 +267,12 @@ class DataType:
                                 f" variable with a default: {var.name}")
             elif var.optional:
                 seen_optional = True
-            if var.default is not None and not isinstance(var.default, Immutable):
+            if var.default is not None and not isinstance(var.default, _IMMUTABLE_CLASSES):
                 raise ValueError(
                     f"for mutable default values, use getter functions with"
                     f" default_factory instead of default: {var.name}")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Instantiates a DataType with positional and/or keyword argument values.
 
         Validates argument count, types, and constraints against the defined
@@ -272,10 +303,6 @@ class DataType:
                 raise TypeError(
                     f"expected {var.type} for variable"
                     f" {var.name!r}, got {value} ({type(value).__name__})")
-            if not istype(value, var.type):
-                raise TypeError(
-                    f"variable {var.name!r} obtained value {value!r},"
-                    f" which is not of type {var.type}")
             if var.validator is not None:
                 if not var.validator(value):
                     raise ValueError(
@@ -283,7 +310,7 @@ class DataType:
             setattr(self, var.name, value)
 
         for key, value in kwargs.items():
-            var = get_var(self.variables, key)
+            var = get_var(self.variables, key)  # type: ignore[assignment]
             if var is None:
                 raise TypeError(
                     f"{self.__class__.__name__}() got an unexpected"
@@ -313,7 +340,7 @@ class DataType:
             if var.optional and not hasattr(self, var.name):
                 setattr(self, var.name, var.default_value)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Returns a string representation of the DataType instance.
 
         Returns:
@@ -326,7 +353,7 @@ class DataType:
         )
         return result + ')'
 
-    def __str__(self):
+    def __str__(self) -> str:
         result = f"{self.__class__.__name__}("
         result += ", ".join(
             f"{getattr(self, var.name)!r}"
@@ -334,7 +361,7 @@ class DataType:
         )
         return result + ')'
 
-    def dumps(self):
+    def dumps(self) -> dict[str, Any]:
         result = {}
         for var in self.variables:
             if not self.DUMP_DEFAULTS and var.optional:
@@ -344,11 +371,11 @@ class DataType:
         result["type"] = self.datatype_id
         return result
 
-    def dump(self, file: TextIOWrapper, /):
+    def dump(self, file: TextIOWrapper, /) -> None:
         json_dump(self.dumps(), file)
 
     @classmethod
-    def loads(cls, obj: dict[str, Any], /):
+    def loads(cls, obj: dict[str, Any], /) -> Self:
         if "type" not in obj:
             raise TypeError(f"type tag missing from data.")
         elif obj["type"] != cls.datatype_id:
@@ -365,12 +392,12 @@ class DataType:
         return cls(*values)
 
     @classmethod
-    def load(cls, file: TextIOWrapper, /):
+    def load(cls, file: TextIOWrapper, /) -> Self:
         return cls.loads(json_load(file))
 
     @classmethod
-    def is_valid(cls, obj: dict[str, Any]):
-        if not istype(obj, dict[str, any]):
+    def is_valid(cls, obj: dict[str, Any]) -> bool:
+        if not istype(obj, dict[str, Any]):
             return False
         if "type" not in obj or obj["type"] != cls.datatype_id:
             return False
@@ -383,7 +410,7 @@ class DataType:
             value = obj[var.name]
             try:
                 loaded_value = var.load(value)
-            except:
+            except Exception:
                 return False
             if not istype(loaded_value, var.type):
                 return False
@@ -392,8 +419,12 @@ class DataType:
         return True
 
 
-def main():
+def main() -> None:
     class Sword(DataType):
+        name: str
+        damage: int
+        knockback: int
+        lores: list[str]
         variables = [
             Variable("name", str),
             Variable("damage", int),

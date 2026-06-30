@@ -176,7 +176,7 @@ LIGHT_THEME = ColorTheme(
 # Sample
 # ---------------------------------------------------------------------------
 
-def main():
+def main() -> None:
     print(f"Color supported: {is_color_supported()}")
     for theme_name, theme in [("DARK", DARK_THEME), ("LIGHT", LIGHT_THEME)]:
         print(f"\n--- {theme_name} THEME ---")
